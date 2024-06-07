@@ -134,7 +134,7 @@ def Data_processing(directory, patient, session, Perclos_treshold, Perclos_windo
 
 def plot_data_PERCLOS_LANE_DEVIATION(resampled_dfs, patient, session, Perclos_window_size, Lane_deviation_window_size, steering_wheel_std, plotting_activated):
     save = 0
-    ackerman_angle_and_raw_steering_show = 0
+    ackerman_angle_and_raw_steering_show = 1
 
     HALF_VEHICLE_WIDTH_LIST = [0, 0.838]
     plotting = int(plotting_activated)
@@ -193,40 +193,9 @@ def plot_data_PERCLOS_LANE_DEVIATION(resampled_dfs, patient, session, Perclos_wi
             ax1c.tick_params(axis='y', labelcolor='tab:purple')
             ax1.set_title('Lane Deviation, Perclos, and Steering Wheel Compensated STD Over Time')
 
-            biopac_df = resampled_dfs[f'{full_session}_Biopac.csv']
-            STM32_ECG= resampled_dfs[f'{full_session}_Biopac.csv']
-            if 'Biopac_2' in biopac_df.columns:
-                ecg_signal = biopac_df['Biopac_2'].dropna()
-                ecg_signal 
-                # Apply bandpass filter to ECG signal
-                lowcut = 4
-                highcut = 40.0
-                fs = 500
-                filtered_ecg = bandpass_filter(ecg_signal, lowcut, highcut, fs)
+           
 
-                processed_ecg = nk.ecg_process(filtered_ecg, sampling_rate=500)
-                r_peaks = processed_ecg[1]['ECG_R_Peaks']
-                rr_intervals = np.diff(r_peaks) * (1 / 500)
-                heart_rate = 60 / rr_intervals
-                hr_times = biopac_df.index[r_peaks[1:]]
-                hr_series = pd.Series(heart_rate, index=hr_times)
-                 # Normalize the filtered ECG signal between 0 and 30
-
-                normalized_ecg = (filtered_ecg - np.min(filtered_ecg)) / (np.max(filtered_ecg) - np.min(filtered_ecg))
-    
-
-                ax2.plot(hr_series.index/60, hr_series, color='tab:blue', label='Heart Rate (BPM)')
-                ax2.set_ylabel('Heart Rate (BPM)', color='tab:blue')
-                ax2.tick_params(axis='y', labelcolor='tab:blue')
-                ax2.legend(loc='upper right')
-                ax2.set_title('Heart Rate and Filtered ECG Signal Over Time')
-
-                # Create a secondary y-axis for the normalized ECG signal
-                ax2b = ax2.twinx()
-                ax2b.plot(biopac_df.index/60, normalized_ecg, color='tab:red', label='Filtered ECG Signal (Normalized)')
-                ax2b.set_ylabel('Filtered ECG Signal (Normalized)', color='tab:red')
-                ax2b.tick_params(axis='y', labelcolor='tab:red')
-                ax2b.legend(loc='upper left')
+            
 
             if ackerman_angle_and_raw_steering_show == 1:
                 # Plotting raw steering position and direction
@@ -247,6 +216,40 @@ def plot_data_PERCLOS_LANE_DEVIATION(resampled_dfs, patient, session, Perclos_wi
                 ax3.legend(loc='upper right')
                 ax3.set_title('Ackermann Angle and Smoothed Ackermann Angle Over Time')
             else:
+
+                biopac_df = resampled_dfs[f'{full_session}_Biopac.csv']
+                STM32_ECG= resampled_dfs[f'{full_session}_Biopac.csv']
+                if 'Biopac_2' in biopac_df.columns:
+                    ecg_signal = biopac_df['Biopac_2'].dropna()
+                    ecg_signal 
+                    # Apply bandpass filter to ECG signal
+                    lowcut = 4
+                    highcut = 40.0
+                    fs = 500
+                    filtered_ecg = bandpass_filter(ecg_signal, lowcut, highcut, fs)
+
+                    processed_ecg = nk.ecg_process(filtered_ecg, sampling_rate=500)
+                    r_peaks = processed_ecg[1]['ECG_R_Peaks']
+                    rr_intervals = np.diff(r_peaks) * (1 / 500)
+                    heart_rate = 60 / rr_intervals
+                    hr_times = biopac_df.index[r_peaks[1:]]
+                    hr_series = pd.Series(heart_rate, index=hr_times)
+                    # Normalize the filtered ECG signal between 0 and 30
+
+                    normalized_ecg = (filtered_ecg - np.min(filtered_ecg)) / (np.max(filtered_ecg) - np.min(filtered_ecg))
+                    ax2.plot(hr_series.index/60, hr_series, color='tab:blue', label='Heart Rate (BPM)')
+                    ax2.set_ylabel('Heart Rate (BPM)', color='tab:blue')
+                    ax2.tick_params(axis='y', labelcolor='tab:blue')
+                    ax2.legend(loc='upper right')
+                    ax2.set_title('Heart Rate and Filtered ECG Signal Over Time')
+
+                    # Create a secondary y-axis for the normalized ECG signal
+                    ax2b = ax2.twinx()
+                    ax2b.plot(biopac_df.index/60, normalized_ecg, color='tab:red', label='Filtered ECG Signal (Normalized)')
+                    ax2b.set_ylabel('Filtered ECG Signal (Normalized)', color='tab:red')
+                    ax2b.tick_params(axis='y', labelcolor='tab:red')
+                    ax2b.legend(loc='upper left')
+
                 # Plotting the main road position
                 ax3.plot(road_position.index/60, road_position, color='tab:blue', label='road position (m)')
                 Vehicle_portion = ["Half vehicle Crossing accident", "Full Vehicle Crossing accident"]
