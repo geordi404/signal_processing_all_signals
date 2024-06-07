@@ -1,10 +1,9 @@
 import os
 import pandas as pd
-import matplotlib.pyplot as plt
 import numpy as np
 import neurokit2 as nk
-import math
-import plotly.graph_objs as go
+import plotly.graph_objects as go
+import plotly.io as pio
 from plotly.subplots import make_subplots
 from scipy.signal import butter, filtfilt
 from Calculate_new_perclos import Calculate_new_perclos
@@ -42,6 +41,10 @@ def smooth_transition(series, window_size):
                 smoothed_series.iloc[i] = (1 - blend_weight) * series.iloc[i] + blend_weight * interpolated_values[i - start]
 
     return smoothed_series
+
+def downsample_data(data, original_rate=500, target_rate=100):
+    factor = original_rate // target_rate
+    return data[::factor]
 
 def Data_processing(directory, patient, session, Perclos_treshold, Perclos_window_size, Lane_deviation_window_size, plotting_activated):
     full_session = f"{patient}_{session}"
@@ -133,12 +136,12 @@ def Data_processing(directory, patient, session, Perclos_treshold, Perclos_windo
     return number_of_crash  # Optional, if you want to use the resampled data elsewhere
 
 def plot_data_PERCLOS_LANE_DEVIATION(resampled_dfs, patient, session, Perclos_window_size, Lane_deviation_window_size, steering_wheel_std, plotting_activated):
-    save = 0
+    save = 1  # Setting save to 1 to save the plots and data
     ackerman_angle_and_raw_steering_show = 0
 
     HALF_VEHICLE_WIDTH_LIST = [0, 0.838]
     plotting = int(plotting_activated)
- 
+
     Number_of_crash = []
 
     ROAD_WIDTH = 3.3528
@@ -172,37 +175,34 @@ def plot_data_PERCLOS_LANE_DEVIATION(resampled_dfs, patient, session, Perclos_wi
         perclos = perclos_df['new_perclos']
         road_position_std = road_position.rolling(window=int(500 * Lane_deviation_window_size)).std()
         if plotting == 1:
-            # Create subplots with shared x-axis
-            fig, (ax1, ax2, ax3, ax4) = plt.subplots(4, 1, figsize=(16, 45), sharex=True)
+            # Downsample data for plotting to reduce size
+            downsampled_time = downsample_data(road_position_std.index.values, 500, 100)
+            downsampled_road_position_std = downsample_data(road_position_std.values, 500, 100)
+            downsampled_perclos = downsample_data(perclos.values, 500, 100)
+            downsampled_steering_wheel_std = downsample_data(steering_wheel_std.values, 500, 100)
 
-            ax1.plot(road_position_std.index/60, road_position_std, color='tab:red')
-            ax1.set_ylabel('Standard Deviation (m)', color='tab:red')
-            ax1.tick_params(axis='y', labelcolor='tab:red')
+            # Create Plotly figure with subplots
+            fig = make_subplots(rows=5, cols=1, shared_xaxes=True, subplot_titles=(
+                'Lane Deviation and Perclos', 'Heart Rate', 'Biopac ECG', 'Road Position', 'Steering Wheel Compensated'))
 
-            ax1b = ax1.twinx()
-            ax1b.plot(perclos.index/60, perclos, color='tab:blue')
-            ax1b.set_ylabel('Perclos', color='tab:blue')
-            ax1b.tick_params(axis='y', labelcolor='tab:blue')
-            
+            # Add Lane Deviation and Perclos plot
+            fig.add_trace(go.Scatter(x=downsampled_time / 60, y=downsampled_road_position_std, mode='lines', name='Standard Deviation (m)', line=dict(color='red')), row=1, col=1)
+            fig.add_trace(go.Scatter(x=downsampled_time / 60, y=downsampled_perclos, mode='lines', name='Perclos', line=dict(color='blue')), row=1, col=1)
 
-            # Plotting standard deviation of the smoothed steering wheel
-            ax1c = ax1.twinx()
-            ax1c.spines['right'].set_position(('outward', 60))
-            ax1c.plot(steering_wheel_std.index/60, steering_wheel_std, color='tab:purple', label='Steering Wheel Compensated STD', linestyle='dashed')
-            ax1c.set_ylabel('Steering Wheel Compensated STD')
-            ax1c.tick_params(axis='y', labelcolor='tab:purple')
-            ax1.set_title('Lane Deviation, Perclos, and Steering Wheel Compensated STD Over Time')
+            # Add Steering Wheel Compensated STD plot
+            fig.add_trace(go.Scatter(x=downsampled_time / 60, y=downsampled_steering_wheel_std, mode='lines', name='Steering Wheel Compensated STD', line=dict(color='purple', dash='dash')), row=1, col=1)
 
             biopac_df = resampled_dfs[f'{full_session}_Biopac.csv']
-            STM32_ECG= resampled_dfs[f'{full_session}_Biopac.csv']
             if 'Biopac_2' in biopac_df.columns:
                 ecg_signal = biopac_df['Biopac_2'].dropna()
-                ecg_signal 
                 # Apply bandpass filter to ECG signal
                 lowcut = 4
                 highcut = 40.0
                 fs = 500
                 filtered_ecg = bandpass_filter(ecg_signal, lowcut, highcut, fs)
+
+                # Downsample ECG data
+                
 
                 processed_ecg = nk.ecg_process(filtered_ecg, sampling_rate=500)
                 r_peaks = processed_ecg[1]['ECG_R_Peaks']
@@ -210,75 +210,58 @@ def plot_data_PERCLOS_LANE_DEVIATION(resampled_dfs, patient, session, Perclos_wi
                 heart_rate = 60 / rr_intervals
                 hr_times = biopac_df.index[r_peaks[1:]]
                 hr_series = pd.Series(heart_rate, index=hr_times)
-                 # Normalize the filtered ECG signal between 0 and 30
+                # Normalize the filtered ECG signal between 0 and 30
 
-                normalized_ecg = (filtered_ecg - np.min(filtered_ecg)) / (np.max(filtered_ecg) - np.min(filtered_ecg))
-    
+                downsampled_ecg_signal = downsample_data(filtered_ecg, 500, 100)
+                downsampled_ecg_time = downsample_data(biopac_df.index.values, 500, 100)
+                
+                normalized_ecg = (downsampled_ecg_signal - np.min(downsampled_ecg_signal)) / (np.max(downsampled_ecg_signal) - np.min(downsampled_ecg_signal))
 
-                ax2.plot(hr_series.index/60, hr_series, color='tab:blue', label='Heart Rate (BPM)')
-                ax2.set_ylabel('Heart Rate (BPM)', color='tab:blue')
-                ax2.tick_params(axis='y', labelcolor='tab:blue')
-                ax2.legend(loc='upper right')
-                ax2.set_title('Heart Rate and Filtered ECG Signal Over Time')
+                fig.add_trace(go.Scatter(x=hr_series.index / 60, y=hr_series, mode='lines', name='Heart Rate (BPM)', line=dict(color='green')), row=2, col=1)
 
-                # Create a secondary y-axis for the normalized ECG signal
-                ax2b = ax2.twinx()
-                ax2b.plot(biopac_df.index/60, normalized_ecg, color='tab:red', label='Filtered ECG Signal (Normalized)')
-                ax2b.set_ylabel('Filtered ECG Signal (Normalized)', color='tab:red')
-                ax2b.tick_params(axis='y', labelcolor='tab:red')
-                ax2b.legend(loc='upper left')
+                # Add Biopac ECG plot
+                fig.add_trace(go.Scatter(x=downsampled_ecg_time / 60, y=downsampled_ecg_signal, mode='lines', name='Biopac ECG', line=dict(color='cyan')), row=3, col=1)
 
             if ackerman_angle_and_raw_steering_show == 1:
-                # Plotting raw steering position and direction
+                # Add raw steering position and direction plot
                 steering_position = simulator_df['Steering Position']
                 direction = simulator_df['Direction']
-                ax2.plot(steering_position.index/60, steering_position, color='tab:green', label='Steering Position')
-                ax2.plot(direction.index, direction, color='tab:orange', label='Direction', linestyle='dotted')
-                ax2.set_ylabel('Steering Position / Direction')
-                ax2.legend(loc='upper right')
-                ax2.set_title('Raw Steering Position and Direction Over Time')
+                fig.add_trace(go.Scatter(x=steering_position.index / 60, y=steering_position, mode='lines', name='Steering Position', line=dict(color='green')), row=4, col=1)
+                fig.add_trace(go.Scatter(x=direction.index, y=direction, mode='lines', name='Direction', line=dict(color='orange', dash='dot')), row=4, col=1)
 
-                # Plotting Ackermann Angle and Smoothed Ackermann Angle
+                # Add Ackermann Angle and Smoothed Ackermann Angle plot
                 ackermann_angle = simulator_df['Ackermann_Angle']
                 ackermann_angle_smoothed = simulator_df['Ackermann_Angle_Smoothed']
-                ax3.plot(ackermann_angle.index/60, ackermann_angle, color='tab:blue', label='Ackermann Angle (degrees)')
-                ax3.plot(ackermann_angle_smoothed.index/60, ackermann_angle_smoothed, color='tab:red', label='Smoothed Ackermann Angle (degrees)')
-                ax3.set_ylabel('Ackermann Angle (degrees)')
-                ax3.legend(loc='upper right')
-                ax3.set_title('Ackermann Angle and Smoothed Ackermann Angle Over Time')
+                fig.add_trace(go.Scatter(x=ackermann_angle.index / 60, y=ackermann_angle, mode='lines', name='Ackermann Angle (degrees)', line=dict(color='blue')), row=5, col=1)
+                fig.add_trace(go.Scatter(x=ackermann_angle_smoothed.index / 60, y=ackermann_angle_smoothed, mode='lines', name='Smoothed Ackermann Angle (degrees)', line=dict(color='red')), row=5, col=1)
             else:
-                # Plotting the main road position
-                ax3.plot(road_position.index/60, road_position, color='tab:blue', label='road position (m)')
-                Vehicle_portion = ["Half vehicle Crossing accident", "Full Vehicle Crossing accident"]
-                color_accident = ['tab:red','tab:orange']
-                # Loop to plot road accident events with dynamic labels and offset
+                # Add road position plot
+                fig.add_trace(go.Scatter(x=road_position.index / 60, y=road_position, mode='lines', name='Road Position (m)', line=dict(color='blue')), row=4, col=1)
                 for i, Road_accident_event in enumerate(Road_accidents_events):
-                    label = Vehicle_portion[i]
+                    label = "Half vehicle Crossing accident" if i == 0 else "Full Vehicle Crossing accident"
+                    color = 'red' if i == 0 else 'orange'
                     if i == 1:  # Apply offset to the second time series
                         Road_accident_event = Road_accident_event - 1.5
-                    ax3.plot(road_position.index/60, Road_accident_event - 2, color=color_accident[i], label=label)
+                    fig.add_trace(go.Scatter(x=road_position.index / 60, y=Road_accident_event - 2, mode='lines', name=label, line=dict(color=color)), row=4, col=1)
 
-                ax3.set_ylabel('road_position (m)')
-                ax3.legend(loc='upper right')
-                ax3.set_title('Road position over time')
-
-            # Plotting Steering Wheel Compensated
+            # Add Steering Wheel Compensated plot
             steering_wheel_compensated = simulator_df['Steering_Wheel_Compensated']
-            ax4.plot(steering_wheel_compensated.index/60, steering_wheel_compensated, color='tab:purple')
-            ax4.set_ylabel('Steering position')
-            ax4.set_title('Steering Wheel Compensated Over Time')
-            plt.tight_layout(pad=8.0)
-            plt.subplots_adjust(hspace=0.4)
-            plt.show()
+            fig.add_trace(go.Scatter(x=steering_wheel_compensated.index / 60, y=steering_wheel_compensated, mode='lines', name='Steering Wheel Compensated', line=dict(color='purple')), row=5, col=1)
 
-            # Saving the figure to a specified path
-            if save == 1:
-                save_path = "D:/recordings/data_analysis"
-                if not os.path.exists(save_path):
-                    os.makedirs(save_path)
-                fig.savefig(f"{save_path}/{full_session}_analysis_figure.png", dpi=300)
+            fig.update_layout(height=1100, title_text=f"Patient {patient}, Session {session}")
+
+            # Save the figure to an HTML file
+            plot_html_path = os.path.join(r'D:\Recordings\data_analysis\Data_consulting', f'patient_{patient}_session_{session}.html')
+            plotly_html = pio.to_html(fig, full_html=False)
+            with open(plot_html_path, 'w', encoding='utf-8') as f:
+                f.write(plotly_html)
+
+            # Save all dataframes as CSV files
+            base_directory = r'D:\Recordings\data_analysis\Data_consulting'
+            for name, df in resampled_dfs.items():
+                csv_path = os.path.join(base_directory, f'{name.replace(".csv", "")}_{full_session}.csv')
+                df.to_csv(csv_path, index=True, encoding='utf-8')
         
-
     except KeyError as e:
         print(f"KeyError: {e}")
     except Exception as e:
