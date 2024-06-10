@@ -5,9 +5,74 @@ import numpy as np
 import neurokit2 as nk
 import math
 import plotly.graph_objs as go
+import plotly.graph_objects as go
+import plotly.io as pio
 from plotly.subplots import make_subplots
 from scipy.signal import butter, filtfilt
 from Calculate_new_perclos import Calculate_new_perclos
+
+def apply_iir_filter(data, fs, cutoff_freq, filter_type='low', order=4):
+    """
+    Apply an IIR filter to the input data.
+
+    Parameters:
+        data (array-like): Input data to be filtered.
+        fs (float): Sampling frequency of the input data.
+        cutoff_freq (float): Cutoff frequency of the filter.
+        filter_type (str): Type of the filter ('low', 'high', 'bandpass', 'bandstop').
+        order (int): Order of the filter.
+
+    Returns:
+        array-like: Filtered data.
+    """
+    if filter_type not in ['low', 'high', 'bandpass', 'bandstop']:
+        raise ValueError("filter_type must be 'low', 'high', 'bandpass', or 'bandstop'")
+    if not isinstance(order, int) or order < 1:
+        raise ValueError("order must be a positive integer")
+    if not isinstance(cutoff_freq,(list, np.ndarray)):
+        raise ValueError("cutoff_freq must be a number")
+    if not isinstance(fs, (int, float)):
+        raise ValueError("fs must be a number")
+    # if not isinstance(data, (list, np.ndarray)):
+    #     raise ValueError("data must be an array-like object")
+    cutoff_freq = np.array(cutoff_freq)
+    nyquist_freq = 0.5 * fs
+    normalized_cutoff_freq = cutoff_freq / nyquist_freq
+
+    b, a = butter(order, normalized_cutoff_freq, btype=filter_type)
+
+    filtered_data = filtfilt(b, a, data)
+    
+    return filtered_data
+
+# Remove outliers
+def remove_outliers(data):
+    mean, std = np.mean(data), np.std(data)
+    cut_off = std * 3
+    lower, upper = mean - cut_off, mean + cut_off
+    data = np.clip(data, lower, upper)
+    return data
+
+def normalize_range(signal):
+    norm_signal = (signal - np.min(signal)) / (np.max(signal) - np.min(signal))
+    return 2 * norm_signal - 1
+
+def preprocess_rsp_signal(rsp_signal, fs=500):               
+    # Filter the respiration signal
+    rsp_signal_filtered = apply_iir_filter(rsp_signal, fs, [0.05, 0.7], 'bandpass', 2)
+    # rsp_signal_filtered = bandpass_filter(rsp_signal, 0.05, 0.7, fs, 2)
+    
+    # Find the peaks of the respiration signal
+    rsp_signal_filtered_peaks = nk.rsp_findpeaks(rsp_signal_filtered, sampling_rate=fs)
+    rsp_rate = nk.signal_rate(rsp_signal_filtered_peaks, desired_length=len(rsp_signal_filtered))
+    
+    # Normalize the respiration signal between -1 and 1
+    rsp_signal = remove_outliers(rsp_signal)
+    rsp_signal = normalize_range(rsp_signal)
+    rsp_signal_filtered = remove_outliers(rsp_signal_filtered)
+    rsp_signal_filtered = normalize_range(rsp_signal_filtered)
+    
+    return rsp_signal, rsp_signal_filtered, rsp_rate
 
 def butter_bandpass(lowcut, highcut, fs, order=5):
     nyquist = 0.5 * fs
@@ -47,7 +112,7 @@ def smooth_transition(series, window_size):
 
     return smoothed_series
 
-def Data_processing(directory, patient, session, Perclos_treshold, Perclos_window_size, Lane_deviation_window_size, plotting_activated):
+def Data_processing(directory, args_dict, patient, session, Perclos_treshold, Perclos_window_size, Lane_deviation_window_size, plotting_activated):
     full_session = f"{patient}_{session}"
     directory_path = os.path.join(directory, patient, full_session, f"{full_session}_aligned")
 
@@ -55,7 +120,9 @@ def Data_processing(directory, patient, session, Perclos_treshold, Perclos_windo
     csv_files = [
         f'{full_session}_Biopac.csv',
         f'{full_session}_STM32ECG.csv',
-        f'{full_session}_simulator_data.csv'
+        f'{full_session}_simulator_data.csv',
+        f'{full_session}_STM32RSP0.csv',
+        f'{full_session}_STM32RSP1.csv',
     ]
 
     DF_new_perclos = Calculate_new_perclos(directory, patient, session, Perclos_treshold, Perclos_window_size, 0)
@@ -122,7 +189,8 @@ def Data_processing(directory, patient, session, Perclos_treshold, Perclos_windo
         simulator_df['Ackermann_Angle'] = np.where(simulator_df['Road ID'] == 0, 0, np.degrees(np.arctan(car_length / simulator_df['Rayon_Signed'])) * 2.85)
 
         # Smooth the Ackermann angle with transition smoothing over 3 seconds
-        simulator_df['Ackermann_Angle_Smoothed'] = smooth_transition(simulator_df['Ackermann_Angle'], 3)
+        # simulator_df['Ackermann_Angle_Smoothed'] = smooth_transition(simulator_df['Ackermann_Angle'], 3)
+        simulator_df['Ackermann_Angle_Smoothed'] = simulator_df['Ackermann_Angle']
 
         # Calculate Steering Wheel Compensated
         simulator_df['Steering_Wheel_Compensated'] = simulator_df['Steering Position'] + simulator_df['Ackermann_Angle_Smoothed']
@@ -130,15 +198,18 @@ def Data_processing(directory, patient, session, Perclos_treshold, Perclos_windo
         # Calculate the standard deviation of the smoothed steering wheel
         steering_wheel_std = simulator_df['Steering_Wheel_Compensated'].rolling(window=int(500 * Lane_deviation_window_size)).std()
 
-        number_of_crash = plot_data_matplotlib(resampled_dfs, patient, session, Perclos_window_size, Lane_deviation_window_size, steering_wheel_std, plotting_activated)
+        if args_dict['plot_type'] == 'html':
+            number_of_crash = plot_data_html(args_dict, resampled_dfs, patient, session, Perclos_window_size, Lane_deviation_window_size, steering_wheel_std, plotting_activated)
+        else:
+            number_of_crash = plot_data_matplotlib(args_dict, resampled_dfs, patient, session, Perclos_window_size, Lane_deviation_window_size, steering_wheel_std, plotting_activated)
     else:
         print("No dataframes were loaded, check file paths and file content.")
 
     return number_of_crash  # Optional, if you want to use the resampled data elsewhere
 
-def plot_data_matplotlib(resampled_dfs, patient, session, Perclos_window_size, Lane_deviation_window_size, steering_wheel_std, plotting_activated):
+def plot_data_matplotlib(args_dict, resampled_dfs, patient, session, Perclos_window_size, Lane_deviation_window_size, steering_wheel_std, plotting_activated):
     save = 0
-    ackerman_angle_and_raw_steering_show = 1
+    ackerman_angle_and_raw_steering_show = 0
 
     HALF_VEHICLE_WIDTH_LIST = [0, 0.838]
     plotting = int(plotting_activated)
@@ -160,15 +231,18 @@ def plot_data_matplotlib(resampled_dfs, patient, session, Perclos_window_size, L
             Road_position_accident_remove_extra_ones = np.zeros_like(Road_position_accident)
 
             # Find the segments of ones and keep only the first occurrence in each segment and replace the rest with zeroes
-            in_accident_segment = False
-            for i in range(len(Road_position_accident)):
-                if Road_position_accident[i] == 1:
-                    if not in_accident_segment:
-                        Road_position_accident_remove_extra_ones[i] = 1
-                        in_accident_segment = True
-                else:
-                    in_accident_segment = False
-
+            # in_accident_segment = False
+            # for i in range(len(Road_position_accident)):
+            #     if Road_position_accident[i] == 1:
+            #         if not in_accident_segment:
+            #             Road_position_accident_remove_extra_ones[i] = 1
+            #             in_accident_segment = True
+            #     else:
+            #         in_accident_segment = False
+            diff_road_position_accident = np.diff(Road_position_accident)
+            diff_road_position_accident[np.where(diff_road_position_accident == -1)[0]] = 0
+            Road_position_accident_remove_extra_ones = np.insert(diff_road_position_accident, 0, Road_position_accident[0])
+            
             # Append the number of crashes to the list
             Number_of_crash.append(np.sum(Road_position_accident_remove_extra_ones))
             Road_accidents_events.append(Road_position_accident_remove_extra_ones)
@@ -177,7 +251,7 @@ def plot_data_matplotlib(resampled_dfs, patient, session, Perclos_window_size, L
         road_position_std = road_position.rolling(window=int(500 * Lane_deviation_window_size)).std()
         if plotting == 1:
             # Create subplots with shared x-axis
-            fig, (ax1, ax2, ax3, ax4) = plt.subplots(4, 1, figsize=(16, 45), sharex=True)
+            fig, (ax1, ax_rsp, ax_rsp_rate, ax3, ax4) = plt.subplots(5, 1, figsize=(16, 45), sharex=True)
 
             ax1.plot(road_position_std.index/60, road_position_std, color='tab:red')
             ax1.set_ylabel('Standard Deviation (m)', color='tab:red')
@@ -201,25 +275,24 @@ def plot_data_matplotlib(resampled_dfs, patient, session, Perclos_window_size, L
                 # Plotting raw steering position and direction
                 steering_position = simulator_df['Steering Position']
                 direction = simulator_df['Direction']
-                ax2.plot(steering_position.index/60, steering_position, color='tab:green', label='Steering Position')
-                ax2.plot(direction.index/60, direction, color='tab:orange', label='Direction', linestyle='dotted')
-                ax2.set_ylabel('Steering Position / Direction')
-                ax2.legend(loc='upper right')
-                ax2.set_title('Raw Steering Position and Direction Over Time')
+                # ax2.plot(steering_position.index/60, steering_position, color='tab:green', label='Steering Position')
+                # ax2.plot(direction.index/60, direction, color='tab:orange', label='Direction', linestyle='dotted')
+                # ax2.set_ylabel('Steering Position / Direction')
+                # ax2.legend(loc='upper right')
+                # ax2.set_title('Raw Steering Position and Direction Over Time')
 
                 # Plotting Ackermann Angle and Smoothed Ackermann Angle
-                ackermann_angle = simulator_df['Ackermann_Angle']
-                ackermann_angle_smoothed = simulator_df['Ackermann_Angle_Smoothed']
-                ax3.plot(ackermann_angle.index/60, ackermann_angle, color='tab:blue', label='Ackermann Angle (degrees)')
-                ax3.plot(ackermann_angle_smoothed.index/60, ackermann_angle_smoothed, color='tab:red', label='Smoothed Ackermann Angle (degrees)')
-                ax3.set_ylabel('Ackermann Angle (degrees)')
-                ax3.legend(loc='upper right')
-                ax3.set_title('Ackermann Angle and Smoothed Ackermann Angle Over Time')
+                # ackermann_angle = simulator_df['Ackermann_Angle']
+                # ackermann_angle_smoothed = simulator_df['Ackermann_Angle_Smoothed']
+                # ax3.plot(ackermann_angle.index/60, ackermann_angle, color='tab:blue', label='Ackermann Angle (degrees)')
+                # ax3.plot(ackermann_angle_smoothed.index/60, ackermann_angle_smoothed, color='tab:red', label='Smoothed Ackermann Angle (degrees)')
+                # ax3.set_ylabel('Ackermann Angle (degrees)')
+                # ax3.legend(loc='upper right')
+                # ax3.set_title('Ackermann Angle and Smoothed Ackermann Angle Over Time')
             else:
-
                 biopac_df = resampled_dfs[f'{full_session}_Biopac.csv']
                 STM32_ECG= resampled_dfs[f'{full_session}_Biopac.csv']
-                if 'Biopac_2' in biopac_df.columns:
+                if ('Biopac_2' in biopac_df.columns) and (args_dict['ecg'] == '1'):
                     ecg_signal = biopac_df['Biopac_2'].dropna()
                     ecg_signal 
                     # Apply bandpass filter to ECG signal
@@ -235,21 +308,71 @@ def plot_data_matplotlib(resampled_dfs, patient, session, Perclos_window_size, L
                     hr_times = biopac_df.index[r_peaks[1:]]
                     hr_series = pd.Series(heart_rate, index=hr_times)
                     # Normalize the filtered ECG signal between 0 and 30
-
                     normalized_ecg = (filtered_ecg - np.min(filtered_ecg)) / (np.max(filtered_ecg) - np.min(filtered_ecg))
-                    ax2.plot(hr_series.index/60, hr_series, color='tab:blue', label='Heart Rate (BPM)')
-                    ax2.set_ylabel('Heart Rate (BPM)', color='tab:blue')
-                    ax2.tick_params(axis='y', labelcolor='tab:blue')
-                    ax2.legend(loc='upper right')
-                    ax2.set_title('Heart Rate and Filtered ECG Signal Over Time')
+                    # ax2.plot(hr_series.index/60, hr_series, color='tab:blue', label='Heart Rate (BPM)')
+                    # ax2.set_ylabel('Heart Rate (BPM)', color='tab:blue')
+                    # ax2.tick_params(axis='y', labelcolor='tab:blue')
+                    # ax2.legend(loc='upper right')
+                    # ax2.set_title('Heart Rate and Filtered ECG Signal Over Time')
 
                     # Create a secondary y-axis for the normalized ECG signal
-                    ax2b = ax2.twinx()
-                    ax2b.plot(biopac_df.index/60, normalized_ecg, color='tab:red', label='Filtered ECG Signal (Normalized)')
-                    ax2b.set_ylabel('Filtered ECG Signal (Normalized)', color='tab:red')
-                    ax2b.tick_params(axis='y', labelcolor='tab:red')
-                    ax2b.legend(loc='upper left')
-
+                    # ax2b = ax2.twinx()
+                    # ax2b.plot(biopac_df.index/60, normalized_ecg, color='tab:red', label='Filtered ECG Signal (Normalized)')
+                    # ax2b.set_ylabel('Filtered ECG Signal (Normalized)', color='tab:red')
+                    # ax2b.tick_params(axis='y', labelcolor='tab:red')
+                    # ax2b.legend(loc='upper left')
+                if ('Biopac_0' in biopac_df.columns) & (args_dict['respiration'] == '1'):
+                    rsp_signal_0 = resampled_dfs[f'{full_session}_STM32RSP0.csv']
+                    rsp_signal_1 = resampled_dfs[f'{full_session}_STM32RSP1.csv']
+                    rsp_signal = biopac_df['Biopac_0'].dropna()
+                    rsp_signal_exp_0 = rsp_signal_0['Stm32RSP0_0'].dropna()
+                    rsp_signal_exp_1 = rsp_signal_0['Stm32RSP0_1'].dropna()
+                    rsp_signal_exp_2 = rsp_signal_1['Stm32RSP1_0'].dropna()
+                    rsp_signal_exp_3 = rsp_signal_1['Stm32RSP1_1'].dropna()
+                    rsp_signal, rsp_signal_filtered, rsp_rate = preprocess_rsp_signal(rsp_signal)
+                    rsp_signal_exp = []
+                    rsp_signal_exp_filtered = []
+                    rsp_signal_rate_exp = []
+                    signal, signal_exp_filtered, signal_rate_exp = preprocess_rsp_signal(rsp_signal_exp_0)
+                    rsp_signal_exp.append(signal)
+                    rsp_signal_exp_filtered.append(signal_exp_filtered)
+                    rsp_signal_rate_exp.append(signal_rate_exp)
+                    signal, signal_exp_filtered, signal_rate_exp = preprocess_rsp_signal(rsp_signal_exp_1)
+                    rsp_signal_exp.append(signal)
+                    rsp_signal_exp_filtered.append(signal_exp_filtered)
+                    rsp_signal_rate_exp.append(signal_rate_exp)
+                    signal, signal_exp_filtered, signal_rate_exp = preprocess_rsp_signal(rsp_signal_exp_2)
+                    rsp_signal_exp.append(signal)
+                    rsp_signal_exp_filtered.append(signal_exp_filtered)
+                    rsp_signal_rate_exp.append(signal_rate_exp)
+                    signal, signal_exp_filtered, signal_rate_exp = preprocess_rsp_signal(rsp_signal_exp_3)
+                    rsp_signal_exp.append(signal)
+                    rsp_signal_exp_filtered.append(signal_exp_filtered)
+                    rsp_signal_rate_exp.append(signal_rate_exp)
+                    
+                    # Plot respiration signal
+                    ax_rsp.plot(rsp_signal.index/60, rsp_signal_filtered, label='Respiration Signal')
+                    ax_rsp.set_ylabel('Respiration Signal' )
+                    ax_rsp.set_xlabel('Time (minutes)')
+                    ax_rsp.tick_params(axis='y')
+                    ax_rsp.legend(loc='upper right')
+                    ax_rsp.set_title('Respiration Signal Over Time')
+ 
+                    ax_rsp_rate.plot(rsp_signal.index/60, rsp_rate, label='Respiration Rate')
+                    ax_rsp_rate.set_ylabel('Respiration Rate')
+                    ax_rsp_rate.tick_params(axis='y',)
+                    
+                    # Plot respiration signal for experimental data
+                    for i in range(4):
+                        ax_rsp.plot(rsp_signal_exp[i].index/60, rsp_signal_exp_filtered[i], label='Respiration Signal exp '+str(i+1))
+                        ax_rsp.set_ylabel('Respiration Signal',)
+                        ax_rsp.set_xlabel('Time (minutes)')
+                        ax_rsp.tick_params(axis='y')
+                        ax_rsp.legend(loc='upper right')
+                        
+                        ax_rsp_rate.plot(rsp_signal_exp[i].index/60, rsp_signal_rate_exp[i], label='Respiration Rate exp '+str(i+1))
+                        ax_rsp_rate.legend(loc='upper left')
+                    
                 # Plotting the main road position
                 ax3.plot(road_position.index/60, road_position, color='tab:blue', label='road position (m)')
                 Vehicle_portion = ["Half vehicle Crossing accident", "Full Vehicle Crossing accident"]
@@ -289,7 +412,7 @@ def plot_data_matplotlib(resampled_dfs, patient, session, Perclos_window_size, L
 
     return Number_of_crash
 
-def plot_data_html(resampled_dfs, patient, session, Perclos_window_size, Lane_deviation_window_size, steering_wheel_std, plotting_activated):
+def plot_data_html(args_dict, resampled_dfs, patient, session, Perclos_window_size, Lane_deviation_window_size, steering_wheel_std, plotting_activated):
     save = 1  # Setting save to 1 to save the plots and data
     ackerman_angle_and_raw_steering_show = 0
 
@@ -356,8 +479,6 @@ def plot_data_html(resampled_dfs, patient, session, Perclos_window_size, Lane_de
                 filtered_ecg = bandpass_filter(ecg_signal, lowcut, highcut, fs)
 
                 # Downsample ECG data
-                
-
                 processed_ecg = nk.ecg_process(filtered_ecg, sampling_rate=500)
                 r_peaks = processed_ecg[1]['ECG_R_Peaks']
                 rr_intervals = np.diff(r_peaks) * (1 / 500)
