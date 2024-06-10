@@ -80,7 +80,7 @@ def Data_processing(directory, patient, session, Perclos_treshold, Perclos_windo
         print("DF_new_perclos DataFrame is empty")
 
     # Load Identifiant_route.csv
-    identifiant_route_path = r'D:\Recordings\Identifiant_route.csv'
+    identifiant_route_path = r'D:\IRSST_recordings\Recordings\Identifiant_route.csv'
     if os.path.exists(identifiant_route_path):
         identifiant_route_df = pd.read_csv(identifiant_route_path)
         id_to_sign = dict(zip(identifiant_route_df['Unique_ID'], identifiant_route_df['signe_route']))
@@ -193,16 +193,12 @@ def plot_data_PERCLOS_LANE_DEVIATION(resampled_dfs, patient, session, Perclos_wi
             ax1c.tick_params(axis='y', labelcolor='tab:purple')
             ax1.set_title('Lane Deviation, Perclos, and Steering Wheel Compensated STD Over Time')
 
-           
-
-            
-
             if ackerman_angle_and_raw_steering_show == 1:
                 # Plotting raw steering position and direction
                 steering_position = simulator_df['Steering Position']
                 direction = simulator_df['Direction']
                 ax2.plot(steering_position.index/60, steering_position, color='tab:green', label='Steering Position')
-                ax2.plot(direction.index, direction, color='tab:orange', label='Direction', linestyle='dotted')
+                ax2.plot(direction.index/60, direction, color='tab:orange', label='Direction', linestyle='dotted')
                 ax2.set_ylabel('Steering Position / Direction')
                 ax2.legend(loc='upper right')
                 ax2.set_title('Raw Steering Position and Direction Over Time')
