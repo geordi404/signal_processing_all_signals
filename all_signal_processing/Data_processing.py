@@ -74,6 +74,36 @@ def preprocess_rsp_signal(rsp_signal, fs=500):
     
     return rsp_signal, rsp_signal_filtered, rsp_rate
 
+def get_rsp_signals_ready(full_session, resampled_dfs, biopac_df):
+    rsp_signal_0 = resampled_dfs[f'{full_session}_STM32RSP0.csv']
+    rsp_signal_1 = resampled_dfs[f'{full_session}_STM32RSP1.csv']
+    rsp_signal = biopac_df['Biopac_0'].dropna()
+    rsp_signal_exp_0 = rsp_signal_0['Stm32RSP0_0'].dropna()
+    rsp_signal_exp_1 = rsp_signal_0['Stm32RSP0_1'].dropna()
+    rsp_signal_exp_2 = rsp_signal_1['Stm32RSP1_0'].dropna()
+    rsp_signal_exp_3 = rsp_signal_1['Stm32RSP1_1'].dropna()
+    rsp_signal, rsp_signal_filtered, rsp_rate = preprocess_rsp_signal(rsp_signal)
+    rsp_signal_exp = []
+    rsp_signal_exp_filtered = []
+    rsp_signal_rate_exp = []
+    signal, signal_exp_filtered, signal_rate_exp = preprocess_rsp_signal(rsp_signal_exp_0)
+    rsp_signal_exp.append(signal)
+    rsp_signal_exp_filtered.append(signal_exp_filtered)
+    rsp_signal_rate_exp.append(signal_rate_exp)
+    signal, signal_exp_filtered, signal_rate_exp = preprocess_rsp_signal(rsp_signal_exp_1)
+    rsp_signal_exp.append(signal)
+    rsp_signal_exp_filtered.append(signal_exp_filtered)
+    rsp_signal_rate_exp.append(signal_rate_exp)
+    signal, signal_exp_filtered, signal_rate_exp = preprocess_rsp_signal(rsp_signal_exp_2)
+    rsp_signal_exp.append(signal)
+    rsp_signal_exp_filtered.append(signal_exp_filtered)
+    rsp_signal_rate_exp.append(signal_rate_exp)
+    signal, signal_exp_filtered, signal_rate_exp = preprocess_rsp_signal(rsp_signal_exp_3)
+    rsp_signal_exp.append(signal)
+    rsp_signal_exp_filtered.append(signal_exp_filtered)
+    rsp_signal_rate_exp.append(signal_rate_exp)
+    return rsp_signal, rsp_signal_filtered, rsp_rate, rsp_signal_exp, rsp_signal_exp_filtered, rsp_signal_rate_exp
+
 def butter_bandpass(lowcut, highcut, fs, order=5):
     nyquist = 0.5 * fs
     low = lowcut / nyquist
@@ -231,14 +261,6 @@ def plot_data_matplotlib(args_dict, resampled_dfs, patient, session, Perclos_win
             Road_position_accident_remove_extra_ones = np.zeros_like(Road_position_accident)
 
             # Find the segments of ones and keep only the first occurrence in each segment and replace the rest with zeroes
-            # in_accident_segment = False
-            # for i in range(len(Road_position_accident)):
-            #     if Road_position_accident[i] == 1:
-            #         if not in_accident_segment:
-            #             Road_position_accident_remove_extra_ones[i] = 1
-            #             in_accident_segment = True
-            #     else:
-            #         in_accident_segment = False
             diff_road_position_accident = np.diff(Road_position_accident)
             diff_road_position_accident[np.where(diff_road_position_accident == -1)[0]] = 0
             Road_position_accident_remove_extra_ones = np.insert(diff_road_position_accident, 0, Road_position_accident[0])
@@ -322,33 +344,7 @@ def plot_data_matplotlib(args_dict, resampled_dfs, patient, session, Perclos_win
                     # ax2b.tick_params(axis='y', labelcolor='tab:red')
                     # ax2b.legend(loc='upper left')
                 if ('Biopac_0' in biopac_df.columns) & (args_dict['respiration'] == '1'):
-                    rsp_signal_0 = resampled_dfs[f'{full_session}_STM32RSP0.csv']
-                    rsp_signal_1 = resampled_dfs[f'{full_session}_STM32RSP1.csv']
-                    rsp_signal = biopac_df['Biopac_0'].dropna()
-                    rsp_signal_exp_0 = rsp_signal_0['Stm32RSP0_0'].dropna()
-                    rsp_signal_exp_1 = rsp_signal_0['Stm32RSP0_1'].dropna()
-                    rsp_signal_exp_2 = rsp_signal_1['Stm32RSP1_0'].dropna()
-                    rsp_signal_exp_3 = rsp_signal_1['Stm32RSP1_1'].dropna()
-                    rsp_signal, rsp_signal_filtered, rsp_rate = preprocess_rsp_signal(rsp_signal)
-                    rsp_signal_exp = []
-                    rsp_signal_exp_filtered = []
-                    rsp_signal_rate_exp = []
-                    signal, signal_exp_filtered, signal_rate_exp = preprocess_rsp_signal(rsp_signal_exp_0)
-                    rsp_signal_exp.append(signal)
-                    rsp_signal_exp_filtered.append(signal_exp_filtered)
-                    rsp_signal_rate_exp.append(signal_rate_exp)
-                    signal, signal_exp_filtered, signal_rate_exp = preprocess_rsp_signal(rsp_signal_exp_1)
-                    rsp_signal_exp.append(signal)
-                    rsp_signal_exp_filtered.append(signal_exp_filtered)
-                    rsp_signal_rate_exp.append(signal_rate_exp)
-                    signal, signal_exp_filtered, signal_rate_exp = preprocess_rsp_signal(rsp_signal_exp_2)
-                    rsp_signal_exp.append(signal)
-                    rsp_signal_exp_filtered.append(signal_exp_filtered)
-                    rsp_signal_rate_exp.append(signal_rate_exp)
-                    signal, signal_exp_filtered, signal_rate_exp = preprocess_rsp_signal(rsp_signal_exp_3)
-                    rsp_signal_exp.append(signal)
-                    rsp_signal_exp_filtered.append(signal_exp_filtered)
-                    rsp_signal_rate_exp.append(signal_rate_exp)
+                    rsp_signal, rsp_signal_filtered, rsp_rate, rsp_signal_exp, rsp_signal_exp_filtered, rsp_signal_rate_exp = get_rsp_signals_ready(full_session, resampled_dfs, biopac_df)
                     
                     # Plot respiration signal
                     ax_rsp.plot(rsp_signal.index/60, rsp_signal_filtered, label='Respiration Signal')
@@ -436,14 +432,9 @@ def plot_data_html(args_dict, resampled_dfs, patient, session, Perclos_window_si
             Road_position_accident_remove_extra_ones = np.zeros_like(Road_position_accident)
 
             # Find the segments of ones and keep only the first occurrence in each segment and replace the rest with zeroes
-            in_accident_segment = False
-            for i in range(len(Road_position_accident)):
-                if Road_position_accident[i] == 1:
-                    if not in_accident_segment:
-                        Road_position_accident_remove_extra_ones[i] = 1
-                        in_accident_segment = True
-                else:
-                    in_accident_segment = False
+            diff_road_position_accident = np.diff(Road_position_accident)
+            diff_road_position_accident[np.where(diff_road_position_accident == -1)[0]] = 0
+            Road_position_accident_remove_extra_ones = np.insert(diff_road_position_accident, 0, Road_position_accident[0])
 
             # Append the number of crashes to the list
             Number_of_crash.append(np.sum(Road_position_accident_remove_extra_ones))
@@ -459,8 +450,8 @@ def plot_data_html(args_dict, resampled_dfs, patient, session, Perclos_window_si
             downsampled_steering_wheel_std = downsample_data(steering_wheel_std.values, 500, 100)
 
             # Create Plotly figure with subplots
-            fig = make_subplots(rows=5, cols=1, shared_xaxes=True, subplot_titles=(
-                'Lane Deviation and Perclos', 'Heart Rate', 'Biopac ECG', 'Road Position', 'Steering Wheel Compensated'))
+            fig = make_subplots(rows=7, cols=1, shared_xaxes=True, subplot_titles=(
+                'Lane Deviation and Perclos', 'Heart Rate', 'Biopac ECG', 'Respiration Signal', 'Respiration rate' 'Road Position', 'Steering Wheel Compensated'))
 
             # Add Lane Deviation and Perclos plot
             fig.add_trace(go.Scatter(x=downsampled_time / 60, y=downsampled_road_position_std, mode='lines', name='Standard Deviation (m)', line=dict(color='red')), row=1, col=1)
@@ -496,32 +487,44 @@ def plot_data_html(args_dict, resampled_dfs, patient, session, Perclos_window_si
 
                 # Add Biopac ECG plot
                 fig.add_trace(go.Scatter(x=downsampled_ecg_time / 60, y=downsampled_ecg_signal, mode='lines', name='Biopac ECG', line=dict(color='cyan')), row=3, col=1)
-
+       
+            if ('Biopac_0' in biopac_df.columns) & (args_dict['respiration'] == '1'):
+                rsp_signal, rsp_signal_filtered, rsp_rate, rsp_signal_exp, rsp_signal_exp_filtered, rsp_signal_rate_exp = get_rsp_signals_ready(full_session, resampled_dfs, biopac_df)
+                # Plot respiration signal
+                fig.add_trace(go.Scatter(x=rsp_signal.index / 60, y=rsp_signal_filtered, mode='lines', name='Respiration Signal', line=dict(color='green')), row=4, col=1)
+                fig.add_trace(go.Scatter(x=rsp_signal.index / 60, y=rsp_rate, mode='lines', name='Respiration Rate', line=dict(color='green')), row=5, col=1)
+                # Plot respiration signal for experimental data
+                # Init 4 colors
+                colors = ['orange', 'purple', 'brown', 'pink']
+                for i in range(4):
+                    fig.add_trace(go.Scatter(x=rsp_signal_exp[i].index / 60, y=rsp_signal_exp_filtered[i], mode='lines', name=f'Respiration Signal exp {i+1}', line=dict(color=colors[i])), row=4, col=1)
+                    fig.add_trace(go.Scatter(x=rsp_signal_exp[i].index / 60, y=rsp_signal_rate_exp[i], mode='lines', name=f'Respiration Rate exp {i+1}', line=dict(color=colors[i])), row=5, col=1)
+                    
             if ackerman_angle_and_raw_steering_show == 1:
                 # Add raw steering position and direction plot
                 steering_position = simulator_df['Steering Position']
                 direction = simulator_df['Direction']
-                fig.add_trace(go.Scatter(x=steering_position.index / 60, y=steering_position, mode='lines', name='Steering Position', line=dict(color='green')), row=4, col=1)
-                fig.add_trace(go.Scatter(x=direction.index, y=direction, mode='lines', name='Direction', line=dict(color='orange', dash='dot')), row=4, col=1)
+                fig.add_trace(go.Scatter(x=steering_position.index / 60, y=steering_position, mode='lines', name='Steering Position', line=dict(color='green')), row=6, col=1)
+                fig.add_trace(go.Scatter(x=direction.index, y=direction, mode='lines', name='Direction', line=dict(color='orange', dash='dot')), row=6, col=1)
 
                 # Add Ackermann Angle and Smoothed Ackermann Angle plot
                 ackermann_angle = simulator_df['Ackermann_Angle']
                 ackermann_angle_smoothed = simulator_df['Ackermann_Angle_Smoothed']
-                fig.add_trace(go.Scatter(x=ackermann_angle.index / 60, y=ackermann_angle, mode='lines', name='Ackermann Angle (degrees)', line=dict(color='blue')), row=5, col=1)
-                fig.add_trace(go.Scatter(x=ackermann_angle_smoothed.index / 60, y=ackermann_angle_smoothed, mode='lines', name='Smoothed Ackermann Angle (degrees)', line=dict(color='red')), row=5, col=1)
+                fig.add_trace(go.Scatter(x=ackermann_angle.index / 60, y=ackermann_angle, mode='lines', name='Ackermann Angle (degrees)', line=dict(color='blue')), row=6, col=1)
+                fig.add_trace(go.Scatter(x=ackermann_angle_smoothed.index / 60, y=ackermann_angle_smoothed, mode='lines', name='Smoothed Ackermann Angle (degrees)', line=dict(color='red')), row=6, col=1)
             else:
                 # Add road position plot
-                fig.add_trace(go.Scatter(x=road_position.index / 60, y=road_position, mode='lines', name='Road Position (m)', line=dict(color='blue')), row=4, col=1)
+                fig.add_trace(go.Scatter(x=road_position.index / 60, y=road_position, mode='lines', name='Road Position (m)', line=dict(color='blue')), row=6, col=1)
                 for i, Road_accident_event in enumerate(Road_accidents_events):
                     label = "Half vehicle Crossing accident" if i == 0 else "Full Vehicle Crossing accident"
                     color = 'red' if i == 0 else 'orange'
                     if i == 1:  # Apply offset to the second time series
                         Road_accident_event = Road_accident_event - 1.5
-                    fig.add_trace(go.Scatter(x=road_position.index / 60, y=Road_accident_event - 2, mode='lines', name=label, line=dict(color=color)), row=4, col=1)
+                    fig.add_trace(go.Scatter(x=road_position.index / 60, y=Road_accident_event - 2, mode='lines', name=label, line=dict(color=color)), row=6, col=1)
 
             # Add Steering Wheel Compensated plot
             steering_wheel_compensated = simulator_df['Steering_Wheel_Compensated']
-            fig.add_trace(go.Scatter(x=steering_wheel_compensated.index / 60, y=steering_wheel_compensated, mode='lines', name='Steering Wheel Compensated', line=dict(color='purple')), row=5, col=1)
+            fig.add_trace(go.Scatter(x=steering_wheel_compensated.index / 60, y=steering_wheel_compensated, mode='lines', name='Steering Wheel Compensated', line=dict(color='purple')), row=6, col=1)
 
             fig.update_layout(height=1100, title_text=f"Patient {patient}, Session {session}")
 
