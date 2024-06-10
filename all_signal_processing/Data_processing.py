@@ -21,6 +21,10 @@ def bandpass_filter(data, lowcut, highcut, fs, order=5):
     y = filtfilt(b, a, data)
     return y
 
+def downsample_data(data, original_rate=500, target_rate=100):
+    factor = original_rate // target_rate
+    return data[::factor]
+
 def smooth_transition(series, window_size):
     window_size = window_size * 500  # Convert window size to samples
     half_window = window_size // 2
