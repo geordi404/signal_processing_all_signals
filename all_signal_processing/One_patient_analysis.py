@@ -27,6 +27,7 @@ def main():
         df_new_perclos=Calculate_new_perclos(args.directory, args.patient, args.session,0.25,60,0)
 
     print(f"#########{Patients_numbers_crash}#########")
+    
     return Patients_numbers_crash
     
 

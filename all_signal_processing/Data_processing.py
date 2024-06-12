@@ -8,18 +8,9 @@ import plotly.graph_objs as go
 from plotly.subplots import make_subplots
 from scipy.signal import butter, filtfilt
 from Calculate_new_perclos import Calculate_new_perclos
-
-def butter_bandpass(lowcut, highcut, fs, order=5):
-    nyquist = 0.5 * fs
-    low = lowcut / nyquist
-    high = highcut / nyquist
-    b, a = butter(order, [low, high], btype='band')
-    return b, a
-
-def bandpass_filter(data, lowcut, highcut, fs, order=5):
-    b, a = butter_bandpass(lowcut, highcut, fs, order=order)
-    y = filtfilt(b, a, data)
-    return y
+from scipy.signal import butter, filtfilt, find_peaks
+import pdb  
+from scipy.interpolate import interp1d
 
 def smooth_transition(series, window_size):
     window_size = window_size * 500  # Convert window size to samples
@@ -50,7 +41,7 @@ def Data_processing(directory, patient, session, Perclos_treshold, Perclos_windo
     # Start with mandatory CSV files
     csv_files = [
         f'{full_session}_Biopac.csv',
-        f'{full_session}_STM32ECG.csv',
+        f'{full_session}_Stm32ECG.csv',
         f'{full_session}_simulator_data.csv'
     ]
 
@@ -126,11 +117,12 @@ def Data_processing(directory, patient, session, Perclos_treshold, Perclos_windo
         # Calculate the standard deviation of the smoothed steering wheel
         steering_wheel_std = simulator_df['Steering_Wheel_Compensated'].rolling(window=int(500 * Lane_deviation_window_size)).std()
 
-        number_of_crash = plot_data_PERCLOS_LANE_DEVIATION(resampled_dfs, patient, session, Perclos_window_size, Lane_deviation_window_size, steering_wheel_std, plotting_activated)
+        #number_of_crash = plot_data_PERCLOS_LANE_DEVIATION(resampled_dfs, patient, session, Perclos_window_size, Lane_deviation_window_size, steering_wheel_std, plotting_activated)
+        plot_ecg_signals(resampled_dfs, patient, session, plotting_activated)
     else:
         print("No dataframes were loaded, check file paths and file content.")
 
-    return number_of_crash  # Optional, if you want to use the resampled data elsewhere
+    #return number_of_crash  # Optional, if you want to use the resampled data elsewhere
 
 def plot_data_PERCLOS_LANE_DEVIATION(resampled_dfs, patient, session, Perclos_window_size, Lane_deviation_window_size, steering_wheel_std, plotting_activated):
     save = 0
@@ -147,25 +139,32 @@ def plot_data_PERCLOS_LANE_DEVIATION(resampled_dfs, patient, session, Perclos_wi
     try:
         # Plotting lane deviation and Perclos
         for HALF_VEHICLE_WIDTH in HALF_VEHICLE_WIDTH_LIST:
-
             simulator_df = resampled_dfs[f'{full_session}_simulator_data.csv']
             perclos_df = resampled_dfs['DF_new_perclos']
             road_position = simulator_df['Road Position (m)']
-            Road_position_accident = np.where((road_position > -HALF_VEHICLE_WIDTH) & (road_position <= (ROAD_WIDTH + HALF_VEHICLE_WIDTH)), 0, 1)
-            # Create an array to store the result
-            Road_position_accident_remove_extra_ones = np.zeros_like(Road_position_accident)
-
-            # Find the segments of ones and keep only the first occurrence in each segment and replace the rest with zeroes
-            in_accident_segment = False
-            for i in range(len(Road_position_accident)):
-                if Road_position_accident[i] == 1:
-                    if not in_accident_segment:
-                        Road_position_accident_remove_extra_ones[i] = 1
-                        in_accident_segment = True
-                else:
-                    in_accident_segment = False
-
-            # Append the number of crashes to the list
+            
+            # Determine if each road position is within the safe range or not
+            Road_position_accident = np.where(
+                (road_position > -HALF_VEHICLE_WIDTH) & (road_position <= (ROAD_WIDTH + HALF_VEHICLE_WIDTH)), 
+                0, 
+                1
+            )
+            
+            # Detect transitions from 0 to 1
+            transitions = np.diff(Road_position_accident, prepend=0)
+            
+            # Qualify the 0 to 1 transitions and ignore others
+            Road_position_accident_remove_extra_ones = np.where(transitions == 1, 1, 0)
+            
+            # Ensure the result has the same length as the original road_position array
+            if len(Road_position_accident_remove_extra_ones) < len(Road_position_accident):
+                # Append a 0 at the end to match the size
+                Road_position_accident_remove_extra_ones = np.append(Road_position_accident_remove_extra_ones, 0)
+            elif len(Road_position_accident_remove_extra_ones) > len(Road_position_accident):
+                # Truncate the last element to match the size
+                Road_position_accident_remove_extra_ones = Road_position_accident_remove_extra_ones[:len(Road_position_accident)]
+                    # Append the number of crashes to the list
+                    
             Number_of_crash.append(np.sum(Road_position_accident_remove_extra_ones))
             Road_accidents_events.append(Road_position_accident_remove_extra_ones)
         
@@ -217,24 +216,26 @@ def plot_data_PERCLOS_LANE_DEVIATION(resampled_dfs, patient, session, Perclos_wi
                 biopac_df = resampled_dfs[f'{full_session}_Biopac.csv']
                 STM32_ECG= resampled_dfs[f'{full_session}_Biopac.csv']
                 if 'Biopac_2' in biopac_df.columns:
-                    ecg_signal = biopac_df['Biopac_2'].dropna()
-                    ecg_signal 
+                    ecg_signal = biopac_df['Biopac_2']
+
                     # Apply bandpass filter to ECG signal
-                    lowcut = 4
-                    highcut = 40.0
+                    lowcut = 6
+                    highcut = 35
                     fs = 500
                     filtered_ecg = bandpass_filter(ecg_signal, lowcut, highcut, fs)
-
-                    processed_ecg = nk.ecg_process(filtered_ecg, sampling_rate=500)
+                    # Process the ECG signal to detect R peaks
+                    processed_ecg = nk.ecg_process(filtered_ecg, sampling_rate=fs)
                     r_peaks = processed_ecg[1]['ECG_R_Peaks']
-                    rr_intervals = np.diff(r_peaks) * (1 / 500)
+                    rr_intervals = np.diff(r_peaks) * (1 / fs)
                     heart_rate = 60 / rr_intervals
                     hr_times = biopac_df.index[r_peaks[1:]]
                     hr_series = pd.Series(heart_rate, index=hr_times)
-                    # Normalize the filtered ECG signal between 0 and 30
 
+                    # Normalize the filtered ECG signal between 0 and 1
                     normalized_ecg = (filtered_ecg - np.min(filtered_ecg)) / (np.max(filtered_ecg) - np.min(filtered_ecg))
-                    ax2.plot(hr_series.index/60, hr_series, color='tab:blue', label='Heart Rate (BPM)')
+
+                    # Plotting the heart rate
+                    ax2.plot(hr_series.index / 60, hr_series, color='tab:blue', label='Heart Rate (BPM)')
                     ax2.set_ylabel('Heart Rate (BPM)', color='tab:blue')
                     ax2.tick_params(axis='y', labelcolor='tab:blue')
                     ax2.legend(loc='upper right')
@@ -242,10 +243,18 @@ def plot_data_PERCLOS_LANE_DEVIATION(resampled_dfs, patient, session, Perclos_wi
 
                     # Create a secondary y-axis for the normalized ECG signal
                     ax2b = ax2.twinx()
-                    ax2b.plot(biopac_df.index/60, normalized_ecg, color='tab:red', label='Filtered ECG Signal (Normalized)')
+                    ax2b.plot(biopac_df.index / 60, normalized_ecg, color='tab:red', label='Filtered ECG Signal (Normalized)')
                     ax2b.set_ylabel('Filtered ECG Signal (Normalized)', color='tab:red')
                     ax2b.tick_params(axis='y', labelcolor='tab:red')
                     ax2b.legend(loc='upper left')
+
+                    # Add markers at R peak indices
+                    r_peak_times = biopac_df.index[r_peaks] / 60  # Convert to minutes
+                    ax2b.plot(r_peak_times, normalized_ecg[r_peaks], 'o', color='tab:green', label='R Peaks')
+
+                    # Adding legends and showing the plot
+                    ax2b.legend(loc='upper left')
+        
 
                 # Plotting the main road position
                 ax3.plot(road_position.index/60, road_position, color='tab:blue', label='road position (m)')
@@ -285,3 +294,250 @@ def plot_data_PERCLOS_LANE_DEVIATION(resampled_dfs, patient, session, Perclos_wi
         print(f"General error: {str(e)}")
 
     return Number_of_crash
+
+
+# Helper function for bandpass filtering
+def bandpass_filter(data, lowcut, highcut, fs, order=5):
+    nyquist = 0.5 * fs
+    low = lowcut / nyquist
+    high = highcut / nyquist
+    b, a = butter(order, [low, high], btype='band')
+    y = filtfilt(b, a, data)
+    return y
+
+# Helper function for adaptive thresholding
+def adaptive_thresholding(ecg_signal, initial_r_peaks, fs, window_size=0.75):
+    # Convert window size to samples
+    window_size_samples = int(window_size * fs)
+    
+    refined_r_peaks = []
+    for i in range(len(initial_r_peaks)):
+        # Define the start and end of the segment around the initial peak
+        start = max(0, initial_r_peaks[i] - window_size_samples // 2)
+        end = min(len(ecg_signal), initial_r_peaks[i] + window_size_samples // 2)
+        
+        # Extract the segment of the signal
+        segment = ecg_signal[start:end]
+        
+        # Calculate the adaptive threshold for the segment
+        threshold = np.mean(segment) + 3 * np.std(segment)
+        
+        # Find local maxima within the segment that exceed the threshold
+        peaks, _ = find_peaks(segment, height=threshold)
+        
+        if len(peaks) > 0:
+            # Select the peak closest to the center of the segment
+            peak_distances = np.abs(peaks - (window_size_samples // 2))
+            r_peak_candidate = peaks[np.argmin(peak_distances)] + start
+            refined_r_peaks.append(r_peak_candidate)
+            if math.isnan(r_peak_candidate):
+                print("NAN FOUND")
+    
+    return np.array(refined_r_peaks)
+
+def plot_ecg_signals(resampled_dfs, patient, session, plotting_activated):
+    plotting = int(plotting_activated)
+    full_session = f"{patient}_{session}"
+    
+    Map_quality_ECG_path = r'F:\Recordings\Qualité_signal_ECG.csv'
+    if os.path.exists(Map_quality_ECG_path):
+        Map_quality_ECG_df = pd.read_csv(Map_quality_ECG_path)
+    patient_session = patient + "_" + session
+    print(patient_session)
+
+    ECG_signal_quality = Map_quality_ECG_df[Map_quality_ECG_df['signal'] == patient_session]
+    print(ECG_signal_quality)
+
+    try:
+        biopac_df = resampled_dfs[f'{full_session}_Biopac.csv']
+        STM32_ECG = resampled_dfs[f'{full_session}_Stm32ECG.csv']
+        
+        if 'Biopac_2' in biopac_df.columns:
+            ecg_signal = biopac_df['Biopac_2']
+
+            # Apply bandpass filter to ECG signal
+            lowcut = 6
+            highcut = 35
+            fs = 500
+            filtered_ecg = bandpass_filter(ecg_signal, lowcut, highcut, fs)
+            normalized_ecg = (filtered_ecg - np.min(filtered_ecg)) / (np.max(filtered_ecg) - np.min(filtered_ecg))
+            normalized_ecg = normalized_ecg ** 2
+
+            # Process the ECG signal to detect initial R peaks
+            processed_ecg = nk.ecg_process(filtered_ecg, sampling_rate=fs)
+            initial_r_peaks = processed_ecg[1]['ECG_R_Peaks']
+            # Apply adaptive thresholding to refine R peaks
+            refined_r_peaks = adaptive_thresholding(filtered_ecg, initial_r_peaks, fs)
+            refined_r_peaks = verify_and_remove_duplicate_peaks(refined_r_peaks)
+            # Calculate heart rate
+            heart_rate = 60 / np.diff(refined_r_peaks) * fs
+            hr_times = biopac_df.index[refined_r_peaks[1:]]
+            hr_series = pd.Series(heart_rate, index=hr_times)
+            print('Biopac_2')
+            # Initialize lists for STM32 HR data
+            hr_series_list = []
+            selected_STM_ECG = []
+            peak_indices_dict = {}  # Dictionary to store peak indices for STM32 signals
+
+            # Process STM32 ECG signals and calculate heart rate
+            for column in ['Stm32ECG_0', 'Stm32ECG_1', 'Stm32ECG_2']:
+                if column in STM32_ECG.columns:
+                    if int(ECG_signal_quality[column]) == 1:
+                        ecg_signal_stm = STM32_ECG[column]
+                        filtered_ecg_stm = bandpass_filter(ecg_signal_stm, lowcut, highcut, fs)
+                        filtered_ecg_stm = filtered_ecg_stm ** 2
+                        processed_ecg_stm = nk.ecg_process(filtered_ecg_stm, sampling_rate=fs)
+                        initial_r_peaks_stm = processed_ecg_stm[1]['ECG_R_Peaks']
+                        refined_r_peaks_stm = adaptive_thresholding(filtered_ecg_stm, initial_r_peaks_stm, fs)
+                        refined_r_peaks_stm = verify_and_remove_duplicate_peaks(refined_r_peaks_stm)
+                        heart_rate_stm = 60 / np.diff(refined_r_peaks_stm) * fs
+                        hr_times_stm = STM32_ECG.index[refined_r_peaks_stm[1:]]
+                        hr_series_stm = pd.Series(heart_rate_stm, index=hr_times_stm)
+                        hr_series_list.append((hr_series_stm, column))
+                        print(column)
+                        selected_STM_ECG.append(column)
+                        peak_indices_dict[column] = refined_r_peaks_stm  # Store peak indices
+                        
+            
+            if plotting == 1:
+                # Create subplots with shared x-axis
+                fig, ax = plt.subplots(3, 1, figsize=(16, 30), sharex=True)
+                # Plotting the heart rate for biopac
+                
+                ax[0].plot(biopac_df.index, normalized_ecg, color='tab:red', label='Biopac Filtered ECG Signal (Normalized)')
+                ax[0].set_ylabel('Filtered ECG Signal (Normalized)', color='tab:red')
+                ax[0].tick_params(axis='y', labelcolor='tab:red')
+                ax[0].legend(loc='upper left')
+                # Add markers at R peak indices
+                r_peak_times = biopac_df.index[refined_r_peaks]
+                ax[0].plot(r_peak_times, normalized_ecg[refined_r_peaks], 'o', color='tab:green', label='R Peaks')
+                # Adding legends and showing the plot
+                ax[0].legend(loc='upper left')
+                # Plot STM32 ECG signals
+                for index, column in enumerate(selected_STM_ECG):
+                    if column in STM32_ECG.columns:
+                        STMECG_Filtered = bandpass_filter(STM32_ECG[column], 4, 35, 500, 5)
+                        normalized_STMECG_Filtered = (STMECG_Filtered - np.min(STMECG_Filtered)) / (np.max(STMECG_Filtered) - np.min(STMECG_Filtered)) 
+                        ax[1].plot(STM32_ECG.index, normalized_STMECG_Filtered + index, label=column)
+                        # Add markers at R peak indices for STM32 signals
+                        r_peak_times_stm = STM32_ECG.index[peak_indices_dict[column]]
+                        ax[1].plot(r_peak_times_stm, normalized_STMECG_Filtered[peak_indices_dict[column]] + index, 'o', color='tab:green', label=f'{column} R Peaks')
+
+                ax[1].set_ylabel('ECG Signals')
+                ax[1].legend(loc='upper right')
+                ax[1].set_title('STM32 ECG Signals Over Time')
+                for hr_series_stm, label in hr_series_list:
+                    hr_series_corrected=advanced_bpm_correction(hr_series,hr_series_stm)
+
+                 # Plotting the heart rate for biopac and STM32 signals
+                ax[2].plot(hr_series.index, hr_series, label='Biopac Heart Rate (BPM)')
+                ax[2].plot(hr_series_corrected.index, hr_series_corrected, label='Biopac Heart Rate corrected',linestyle='--')
+                # Plotting the heart rate for STM32 signals
+                for hr_series_stm, label in hr_series_list:
+                    ax[2].plot(hr_series_stm.index, hr_series_stm, label=f'{label} Heart Rate (BPM)')
+
+                ax[2].set_ylabel('Heart Rate (BPM)', color='tab:blue')
+                ax[2].tick_params(axis='y', labelcolor='tab:blue')
+                ax[2].legend(loc='upper right')
+                ax[2].set_title('Heart Rate from All Signals Over Time')
+
+                plt.tight_layout(pad=8.0)
+                plt.subplots_adjust(hspace=0.4)
+                plt.show()
+
+    except KeyError as e:
+        print(f"KeyError: {e}")
+    except Exception as e:
+        print(f"General error: {str(e)}")
+
+
+# Function to verify and remove duplicate peaks
+def verify_and_remove_duplicate_peaks(peaks):
+    differences = np.diff(peaks)
+    duplicate_indices = np.where(differences == 0)[0]
+    if len(duplicate_indices) > 0:
+        print(f"Duplicate peaks found at indices: {duplicate_indices}")
+    peaks = np.delete(peaks, duplicate_indices + 1)
+    return peaks
+
+
+
+def create_common_time_base(biopac_hr_series, stm32_hr_series, freq=1):
+    """Create a common time base for resampling."""
+    start_time = max(biopac_hr_series.index[0], stm32_hr_series.index[0])
+    end_time = min(biopac_hr_series.index[-1], stm32_hr_series.index[-1])
+    common_time_base = np.arange(start_time, end_time + freq, freq)
+    return common_time_base
+
+def resample_bpm(bpm_series, target_time_index):
+    """Resample BPM series to match the target time index."""
+    original_time_index = bpm_series.index
+    bpm_values = bpm_series.values
+
+    # Create an interpolation function
+    interp_func = interp1d(original_time_index, bpm_values, kind='linear', fill_value='extrapolate')
+
+    # Resample BPM values to match the target time index
+    resampled_bpm_values = interp_func(target_time_index)
+    resampled_bpm_series = pd.Series(resampled_bpm_values, index=target_time_index)
+    
+    return resampled_bpm_series
+
+def advanced_bpm_correction(biopac_hr_series, stm32_hr_series, avg_window_size=60):
+    # Create a common time base
+    common_time_base = create_common_time_base(biopac_hr_series, stm32_hr_series)
+
+    # Resample both Biopac and STM32 BPM series to the common time base
+    resampled_biopac_hr_series = resample_bpm(biopac_hr_series, common_time_base)
+    resampled_stm32_hr_series = resample_bpm(stm32_hr_series, common_time_base)
+
+    # Initialize the corrected Biopac BPM series
+    corrected_biopac_hr_series = resampled_biopac_hr_series.copy()
+
+    # Convert to arrays for easier manipulation
+    biopac_bpm = resampled_biopac_hr_series.values
+    stm32_bpm = resampled_stm32_hr_series.values
+
+    last_correct_biopac_bpm = None
+    last_correct_stm32_bpm = None
+
+    for i in range(len(biopac_bpm)):
+        # Check if the new BPM of Biopac is bad
+        is_biopac_bad = (
+            biopac_bpm[i] < 40 or biopac_bpm[i] > 150 or
+            (i > 0 and abs(biopac_bpm[i] - biopac_bpm[i - 1]) > 15)
+        )
+
+        # Check if the new BPM of STM32 is bad
+        is_stm32_bad = (
+            stm32_bpm[i] < 40 or stm32_bpm[i] > 150 or
+            (i > 0 and abs(stm32_bpm[i] - stm32_bpm[i - 1]) > 20)
+        )
+
+        if is_biopac_bad:
+            if not is_stm32_bad:
+                # Replace Biopac BPM with STM32 BPM if STM32 BPM is good
+                corrected_biopac_hr_series.iloc[i] = stm32_bpm[i]
+                last_correct_biopac_bpm = stm32_bpm[i]
+            else:
+                # Replace Biopac BPM with last correct value if STM32 BPM is also bad
+                corrected_biopac_hr_series.iloc[i] = last_correct_biopac_bpm
+        
+        if not is_stm32_bad:
+            last_correct_stm32_bpm = stm32_bpm[i]
+
+        # If Biopac BPM is still bad after replacement, use average of the last 60 values
+        if is_biopac_bad:
+            if i >= avg_window_size:
+                avg_last_60_biopac = np.mean(corrected_biopac_hr_series[i - avg_window_size:i])
+            else:
+                avg_last_60_biopac = np.mean(corrected_biopac_hr_series[:i])
+            corrected_biopac_hr_series.iloc[i] = avg_last_60_biopac
+
+    return corrected_biopac_hr_series
+
+# Example usage
+# Assuming biopac_hr_series and stm32_hr_series are pandas Series of BPM values with datetime indices
+# biopac_hr_series = pd.Series([...], index=pd.to_datetime([...]))
+# stm32_hr_series = pd.Series([...], index=pd.to_datetime([...]))
+# corrected_hr_series = advanced_bpm_correction(biopac_hr_series, stm32_hr_series)

@@ -1,0 +1,13 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: One_patient_analysis",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/One_patient_analysis.py",
+            "console": "integratedTerminal",
+            "args": ["-d", "F:\\Recordings", "-p", "P009", "-s", "S002", "-plt", "1", "-c", "0"]
+        }
+    ]
+}
