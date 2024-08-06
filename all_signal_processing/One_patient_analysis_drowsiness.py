@@ -1,7 +1,7 @@
 import pandas as pd
 import os
 from Arg_parse import parse_arguments
-from Data_processing import Data_processing
+from Data_processing_drowsiness import Data_processing
 from Calculate_new_perclos import Calculate_new_perclos
 
 def main():
@@ -10,6 +10,9 @@ def main():
     full_session = f"{args.patient}_{args.session}"
     directory_path = os.path.join(args.directory, args.patient, full_session, f"{full_session}_aligned")
     csv_file = f'{full_session}_combined_data.csv'
+    
+    Drowsiness_Accuracy_signal_quality_csv_total = r'E:\Recordings\data_analysis\Drowsiness_Accuracy_signal_quality_total.csv'
+    Drowsiness_Accuracy_signal_quality_csv_granularized = r'E:\Recordings\data_analysis\Drowsiness_Accuracy_signal_quality_granularized.csv'
     file_path = os.path.join(directory_path, csv_file)
     #windowsizes=[15,30,45,60,75,90,105,120,135,150,165,180,195,210,225,240,255,270,285,300]
     windowsizes=[60]
@@ -18,7 +21,7 @@ def main():
     if 0==int(args.calculate_perclos):
         for Window_size in windowsizes:
             
-            Patients_numbers_crash.append(Data_processing(args.directory, args.patient, args.session,0.25,Window_size,Window_size,args.plotting_activated))
+            Patients_numbers_crash.append(Data_processing(args.directory, args.patient, args.session,0.25,Window_size,Window_size,args.plotting_activated,Drowsiness_Accuracy_signal_quality_csv_total,Drowsiness_Accuracy_signal_quality_csv_granularized))
             
 
     elif 1==int(args.calculate_perclos):

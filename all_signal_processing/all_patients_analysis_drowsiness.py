@@ -32,7 +32,7 @@ def analyze_patient_range(base_path, patient_range, return_dict):
                 print(f"Entering directory: {full_session_path}")
                 Pxxx, Sxxx = split_sp_code(patient_level_dir)
                 print(f"Analyzing {Pxxx}_{Sxxx}...")
-                command = ['python', 'One_patient_analysis.py', '-d', base_path, '-p', Pxxx, '-s', Sxxx, '-c', str(0),'-plt',str(0)]
+                command = ['python', 'One_patient_analysis_drowsiness.py', '-d', base_path, '-p', Pxxx, '-s', Sxxx, '-c', str(0),'-plt',str(0)]
                 try:
                     result = subprocess.run(command, check=True, capture_output=True, text=True)
                     print(f"successfully ran {Pxxx}_{Sxxx}!")
@@ -49,13 +49,16 @@ def run_program(base_path):
 
     return_dict = manager.dict()
 
-    ranges = [
-        range(1, 6),
-        range(6, 11),
-        range(11, 16),
-        range(16, 21),
-        range(21, 26)
-    ]
+    #ranges = [
+        #range(1, 6),
+        #range(6, 11),
+        #range(11, 16),
+        #range(16, 21),
+        #range(21, 26)
+    #]
+    
+    ranges = [range(1, 26)]
+
 
     processes = []
     for patient_range in ranges:
@@ -72,5 +75,5 @@ def run_program(base_path):
             print(f"Patient {patient}: {result}########################################################")
 
 if __name__ == '__main__':
-    base_directory = r'D:\Recordings'
+    base_directory = r'E:\Recordings'
     run_program(base_directory)

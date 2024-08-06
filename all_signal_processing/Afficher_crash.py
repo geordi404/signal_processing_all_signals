@@ -15,7 +15,8 @@ def add_std_brackets(ax, data, positions):
     for pos, col in zip(positions, data.columns):
         std_dev = data[col].std()
         mean = data[col].mean()
-        
+        print(f"{col} - Mean: {mean}, Standard Deviation: {std_dev}")
+        ax.text(pos, mean, f'{mean:.2f} ± {std_dev:.2f}', ha='center', va='bottom')
 
 def plot_combined_boxplot_with_std(data_pm, data_soir, columns, title_pm, title_soir):
     fig, axes = plt.subplots(1, 2, figsize=(15, 6))
@@ -37,6 +38,19 @@ def plot_combined_boxplot_with_std(data_pm, data_soir, columns, title_pm, title_
 
 # Columns to plot
 half_columns = ['Session 1', 'Session 2']
+
+# Print averages and standard deviations for both categories
+print("PM Category:")
+for col in half_columns:
+    mean = df_pm[col].mean()
+    std_dev = df_pm[col].std()
+    print(f"{col} - Mean: {mean}, Standard Deviation: {std_dev}")
+
+print("\nSoir Category:")
+for col in half_columns:
+    mean = df_soir[col].mean()
+    std_dev = df_soir[col].std()
+    print(f"{col} - Mean: {mean}, Standard Deviation: {std_dev}")
 
 # Plot combined figure for both categories
 plot_combined_boxplot_with_std(df_pm, df_soir, half_columns, 
